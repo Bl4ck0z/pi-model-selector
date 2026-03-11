@@ -60,6 +60,9 @@ export default function modelSelectorExtension(pi: ExtensionAPI) {
 
   let running = false;
 
+  // Flag to track self-initiated model changes (so we don't pause when WE call setModel)
+  const selfInitiatedModelChange = { current: false };
+
   const runSelectorWrapper = async (
     ctx: ExtensionContext,
     reason: SelectorReason,
@@ -89,6 +92,7 @@ export default function modelSelectorExtension(pi: ExtensionAPI) {
         reason,
         options,
         pi,
+        selfInitiatedModelChange,
       );
       return result;
     } finally {
@@ -101,6 +105,28 @@ export default function modelSelectorExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     void _event;
+    // Check for --model CLI flag - if passed, skip auto-selection entirely for this session
+    if (process.argv.includes("--model")) {
+      autoSelectionDisabled = true;
+      writeDebugLog("Auto-selection disabled: --model CLI flag detected");
+      // Ensure any existing widget reflects that auto-selection is disabled
+      try {
+        const { getWidgetState } = await import("./src/widget.js");
+        const state = getWidgetState();
+        if (state) {
+          updateWidgetState({ ...state, autoSelectionDisabled: true });
+          renderUsageWidget(ctx);
+        }
+      } catch (err) {
+        // Widget updates are best-effort; log and continue
+        writeDebugLog(
+          `Failed to update widget state after disabling auto-selection: ${String(
+            err,
+          )}`,
+        );
+      }
+      return;
+    }
     // Skip model selection if auto-selection is disabled for this session
     if (autoSelectionDisabled) {
       writeDebugLog("Skipping model selection: auto-selection is disabled");
@@ -109,8 +135,47 @@ export default function modelSelectorExtension(pi: ExtensionAPI) {
     await runSelectorWrapper(ctx, "startup");
   });
 
+  // Handle explicit model selection events - pause auto-selection when user or external extension chooses a model
+  pi.on("model_select", async (event, ctx) => {
+    // If this is our own model change, ignore it
+    // Don't clear the flag here - let the setModel caller (in selector.ts) handle it
+    // This prevents multiple model_select events from breaking the guard window
+    if (selfInitiatedModelChange.current) {
+      return;
+    }
+    // Session restore is not an explicit choice
+    if (event.source === "restore") {
+      return;
+    }
+    // "set" (external extension) or "cycle" (user via Ctrl+P/Ctrl+L) - pause auto-selection
+    if (event.source === "set" || event.source === "cycle") {
+      autoSelectionDisabled = true;
+      writeDebugLog(
+        `Auto-selection paused: model explicitly selected (source: ${event.source})`,
+      );
+      // Update widget to reflect paused state
+      const { getWidgetState } = await import("./src/widget.js");
+      const state = getWidgetState();
+      if (state) {
+        updateWidgetState({ ...state, autoSelectionDisabled: true });
+        renderUsageWidget(ctx);
+      }
+      // Notify user (skip for CLI subprocesses which have no UI)
+      if (ctx.hasUI) {
+        notify(
+          ctx,
+          "info",
+          "Auto model selection paused: model was explicitly selected. Use /model-select or start a new session to resume.",
+        );
+      }
+    }
+  });
+
   pi.on("session_switch", async (event, ctx) => {
     if (event.reason === "new" || event.reason === "resume") {
+      // Re-enable auto-selection on session switch (new/resume)
+      autoSelectionDisabled = false;
+      writeDebugLog("Auto-selection re-enabled on session switch");
       // Skip model selection if auto-selection is disabled for this session
       if (autoSelectionDisabled) {
         writeDebugLog("Skipping model selection: auto-selection is disabled");
@@ -211,6 +276,19 @@ export default function modelSelectorExtension(pi: ExtensionAPI) {
     description: "Select the best starting model based on quota usage",
     handler: async (_args, ctx) => {
       void _args;
+      // Re-enable auto-selection if it was paused
+      if (autoSelectionDisabled) {
+        autoSelectionDisabled = false;
+        writeDebugLog("Auto-selection re-enabled via /model-select command");
+        // Update widget to reflect resumed state
+        const { getWidgetState } = await import("./src/widget.js");
+        const state = getWidgetState();
+        if (state) {
+          updateWidgetState({ ...state, autoSelectionDisabled: false });
+          renderUsageWidget(ctx);
+        }
+        notify(ctx, "info", "Auto model selection re-enabled.");
+      }
       await runSelectorWrapper(ctx, "command");
     },
   });

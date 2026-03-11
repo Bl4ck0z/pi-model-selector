@@ -87,6 +87,7 @@ export async function runSelector(
   reason: SelectorReason,
   options: SelectorOptions = {},
   pi: ExtensionAPI,
+  selfInitiatedModelChange?: { current: boolean },
 ): Promise<boolean> {
   let lockKeyForErrorCleanup: string | undefined;
 
@@ -269,6 +270,7 @@ export async function runSelector(
         cooldownManager,
         autoSelectionDisabled,
         displayCandidates,
+        selfInitiatedModelChange,
       );
     }
 
@@ -347,6 +349,7 @@ export async function runSelector(
       activeModelLockKey,
       waitedForLockMs,
       reason,
+      selfInitiatedModelChange,
     );
   } catch (error: unknown) {
     if (lockKeyForErrorCleanup) {
@@ -381,6 +384,7 @@ async function handleExhaustedCandidates(
   cooldownManager: CooldownManager,
   _autoSelectionDisabled: boolean,
   candidates: UsageCandidate[],
+  selfInitiatedModelChange?: { current: boolean },
 ): Promise<boolean> {
   void _lockKeyForErrorCleanup;
   void _autoSelectionDisabled;
@@ -455,7 +459,18 @@ async function handleExhaustedCandidates(
       current.id === config.fallback.id;
 
   if (!isAlreadySelected) {
-    const success = await pi.setModel(fallbackModel);
+    // Mark this as self-initiated so model_select event handler doesn't pause auto-selection
+    let success: boolean;
+    if (selfInitiatedModelChange) {
+      selfInitiatedModelChange.current = true;
+      try {
+        success = await pi.setModel(fallbackModel);
+      } finally {
+        selfInitiatedModelChange.current = false;
+      }
+    } else {
+      success = await pi.setModel(fallbackModel);
+    }
     if (!success) {
       notify(
         ctx,
@@ -765,6 +780,7 @@ async function finalizeSelection(
   activeModelLockKey: { current: string | null },
   waitedForLockMs: number,
   reason: SelectorReason,
+  selfInitiatedModelChange?: { current: boolean },
 ): Promise<boolean> {
   if (!mapping || !mapping.model) {
     const usage = { provider: best.provider } as {
@@ -831,7 +847,18 @@ async function finalizeSelection(
       current.id === mapping.model.id;
 
   if (!isAlreadySelected) {
-    const success = await pi.setModel(model);
+    // Mark this as self-initiated so model_select event handler doesn't pause auto-selection
+    let success: boolean;
+    if (selfInitiatedModelChange) {
+      selfInitiatedModelChange.current = true;
+      try {
+        success = await pi.setModel(model);
+      } finally {
+        selfInitiatedModelChange.current = false;
+      }
+    } else {
+      success = await pi.setModel(model);
+    }
     if (!success) {
       notify(
         ctx,
