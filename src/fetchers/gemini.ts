@@ -461,7 +461,9 @@ export async function fetchGeminiUsage(
                   frac = bucket.remainingFraction ?? 1;
 
                 let family = "Other";
-                if (modelId.toLowerCase().includes("pro")) family = "Pro";
+                if (modelId.toLowerCase().includes("flash-lite"))
+                  family = "Flash Lite";
+                else if (modelId.toLowerCase().includes("pro")) family = "Pro";
                 else if (modelId.toLowerCase().includes("flash")) {
                   family = "Flash";
                 } else {
