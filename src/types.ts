@@ -83,8 +83,13 @@ export interface MinimaxSettings {
   groupId?: string;
 }
 
+export interface GeminiSettings {
+  resetTimezone?: string; // IANA timezone ID, e.g. "America/New_York", or "local"
+}
+
 export interface ProviderSettings {
   minimax?: MinimaxSettings;
+  gemini?: GeminiSettings;
 }
 
 export interface LoadedConfig {
