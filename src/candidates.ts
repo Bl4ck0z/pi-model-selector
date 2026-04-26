@@ -1,8 +1,9 @@
-import type {
-  MappingEntry,
-  PriorityRule,
-  UsageCandidate,
-  UsageSnapshot,
+import {
+  type MappingEntry,
+  mappingKey,
+  type PriorityRule,
+  type UsageCandidate,
+  type UsageSnapshot,
 } from "./types.js";
 import { formatReset } from "./usage-fetchers.js";
 
@@ -85,8 +86,10 @@ export function compareCandidates(
       const aMapping = findModelMapping(a, mappings),
         bMapping = findModelMapping(b, mappings);
       if (aMapping && bMapping) {
-        const aIndex = mappings.indexOf(aMapping),
-          bIndex = mappings.indexOf(bMapping);
+        const aKey = mappingKey(aMapping),
+          bKey = mappingKey(bMapping);
+        const aIndex = mappings.findIndex((m) => mappingKey(m) === aKey),
+          bIndex = mappings.findIndex((m) => mappingKey(m) === bKey);
         const diff = bIndex - aIndex; // Lower index is higher priority
         if (diff !== 0) return { diff, rule };
       }
